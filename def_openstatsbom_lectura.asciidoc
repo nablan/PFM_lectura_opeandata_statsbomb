@@ -1,0 +1,686 @@
++*In[311]:*+
+[source, ipython3]
+----
+import pandas as pd
+import urllib.request, json
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import seaborn as sns 
+import numpy as np
+from matplotlib.patches import Arc, Circle, Ellipse, FancyArrowPatch
+from IPython.display import HTML
+----
+
+== Definición de función de lectura de archivos *.json de eventos
+
+Los archivos de eventos dispuestos de forma abierta por StatsBomb se
+encuentran en:
+https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/####.json
+
+Donde #### refiere al match id del encuentro en cuestión
+
+La URL se usa por defecto como la indicada. Pero se puede cambiar
+pasándole un string URL. La función permite leer una lista de archivos
+de eventos, bien dando una secuencia o la lista de forma puntual.
+
+
++*In[532]:*+
+[source, ipython3]
+----
+def eventos_stb_a_df(matchid=[],rango=True,
+                     URL="https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/"):
+    
+#Si rango = true, se espera leer los matchs comprendidos entre matchid.0 y matchid.1
+    df_eventos=pd.DataFrame()
+    alineacion=pd.DataFrame()
+    if rango==True:
+        print("iniciando lectura secuencia de archivos de eventos")
+        #ciclo de busqueda de los juegos comprendidos en el rango dado
+        for m in range (int(matchid[0]),int(matchid[1])+1):
+            #se crea la ruta al juego y se abre y carga en data
+            URLmatch=URL+str(m)+".json"
+            print(URLmatch)
+            with urllib.request.urlopen(URLmatch) as url:
+                    data = json.loads(url.read().decode())
+            
+            #se normaliza la lista formato json contenida en data
+            df=  pd.json_normalize(data, sep=".")
+            
+            #se adiciona informacion de identificacipn del juego
+            df.insert(loc=0, column='match_id', value=m)
+            
+            #se extraen las alineaciones del juego leido
+            starting_XI=df[df['type.id']==35]
+            
+            #se normalizan las listas que contienen las alineaciones y se adiciona informacion de formacion tactica, matchid y equipo
+            alineacionA=pd.json_normalize(starting_XI.loc[0,'tactics.lineup'],sep=".")
+            alineacionB=pd.json_normalize(starting_XI.loc[1,'tactics.lineup'],sep=".")
+            alineacionA.insert(0,'match_id',m)
+            alineacionB.insert(0,'match_id',m)
+            alineacionA.insert(1,'team_id',starting_XI.loc[0,'team_id'])
+            alineacionB.insert(1,'team_id',starting_XI.loc[1,'team_id'])
+            alineacionA.insert(2,'team_name',starting_XI.loc[0,'team.name'])
+            alineacionB.insert(2,'team_name',starting_XI.loc[1,'team.name'])
+            alineacionA.insert(3,'tactics_formation',str(starting_XI.loc[0,'tactics.formation']))
+            alineacionB.insert(3,'tactics_formation',str(starting_XI.loc[1,'tactics.formation']))
+
+            #se consolidad las alineaciones de los equipos
+            alineacion=pd.concat([alineacionA, alineacion], ignore_index=True, sort=False)
+            alineacion=pd.concat([alineacionB, alineacion], ignore_index=True, sort=False)
+            
+            #se eliminan las alineaciones de los eventos y se consolidad los eventos de todos los juegos leidos
+            df=df.loc[df['type.id'] != 35]
+            df_eventos=pd.concat([df, df_eventos], ignore_index=True, sort=False)
+            
+            print(f"leido archivo {m}.json con {df.shape[0]} eventos")
+            
+                         
+    else:
+        for m in matchid:
+            URLmatch=URL+m+".json"
+            print(URLmatch)
+            with urllib.request.urlopen(URLmatch) as url:
+                data = json.loads(url.read().decode())
+            #se normaliza la lista formato json contenida en data
+            df=  pd.json_normalize(data, sep=".")
+            
+            #se adiciona informacion de identificacipn del juego
+            df.insert(loc=0, column='match_id', value=m)
+            
+            #se extraen las alineaciones del juego leido
+            starting_XI=df[df['type.id']==35]
+            
+            #se normalizan las listas que contienen las alineaciones y se adiciona informacion de formacion tactica, matchid y equipo
+            alineacionA=pd.json_normalize(starting_XI.loc[0,'tactics.lineup'],sep=".")
+            alineacionB=pd.json_normalize(starting_XI.loc[1,'tactics.lineup'],sep=".")
+            alineacionA.insert(0,'match_id',m)
+            alineacionB.insert(0,'match_id',m)
+            alineacionA.insert(1,'team_id',starting_XI.loc[0,'team.id'])
+            alineacionB.insert(1,'team_id',starting_XI.loc[1,'team.id'])
+            alineacionA.insert(2,'team_name',starting_XI.loc[0,'team.name'])
+            alineacionB.insert(2,'team_name',starting_XI.loc[1,'team.name'])
+            alineacionA.insert(3,'tactics_formation',str(starting_XI.loc[0,'tactics.formation']))
+            alineacionB.insert(3,'tactics_formation',str(starting_XI.loc[1,'tactics.formation']))
+
+            #se consolidad las alineaciones de los equipos
+            alineacion=pd.concat([alineacionA, alineacion], ignore_index=True, sort=False)
+            alineacion=pd.concat([alineacionB, alineacion], ignore_index=True, sort=False)
+            
+            
+    
+            
+            
+            #se eliminan las alineaciones de los eventos y se consolidad los eventos de todos los juegos leidos
+            df=df.loc[df['type.id'] != 35]
+            df_eventos=pd.concat([df, df_eventos], ignore_index=True, sort=False)
+            
+            print(f"leido archivo {m}.json con {df.shape[0]} eventos")
+                         
+    #se extraen y normalizan los shot_freeze_frame en dataframe separado
+    shot_freeze_frame=pd.DataFrame()
+    fr_frame=df_eventos[df_eventos['shot.freeze_frame'].notnull()][['match_id','team.id','team.name','id','index','shot.freeze_frame']]
+    
+    for ind in fr_frame.index:
+        ff_temp=pd.json_normalize(fr_frame.loc[ind,'shot.freeze_frame'],sep=".")
+        ff_temp.insert(0,'match_id',fr_frame.loc[ind,'match_id'])
+        ff_temp.insert(1,'team_id',fr_frame.loc[ind,'team.id'])
+        ff_temp.insert(2,'team_name',fr_frame.loc[ind,'team.name'])
+        ff_temp.insert(3,'id',fr_frame.loc[ind,'id'])
+        ff_temp.insert(2,'index',fr_frame.loc[ind,'index'])
+        shot_freeze_frame=pd.concat([shot_freeze_frame, ff_temp], ignore_index=True, sort=False)
+    
+    #se elimina la columna que contienen los shot_freeze_frames
+    df_eventos.drop('shot.freeze_frame', inplace=True, axis=1)
+    
+    #todos los campos terminados en _id se pasan a int con excepcion de los uuid que refieren a statsbomb uuid y que es un string
+    #se verifica que no sea string , se sustituyen los NaN con 0 y pasa a int
+        
+    for column in df_eventos:
+        if column[len(column)-2:]=="id":
+            if df_eventos[column].dtype == 'float':
+                df_eventos[column].fillna(0, inplace=True)
+                df_eventos[column] = df_eventos[column].astype(int)
+    
+    alineacion['tactics_formation']= alineacion['tactics_formation'].apply(lambda z: z.split(".")[0])  
+    print(f"se han cargado cargado {df_eventos.shape[0]} eventos de {int(alineacion.shape[0]/22)} juegos y {int(alineacion.shape[0]/22)} alineaciones")
+    return df_eventos, alineacion, shot_freeze_frame
+                     
+                     
+----
+
+
++*In[533]:*+
+[source, ipython3]
+----
+eventos, ali, sff = eventos_stb_a_df(matchid=["19718"],rango=False)
+----
+
+
++*Out[533]:*+
+----
+https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/19718.json
+leido archivo 19718.json con 3445 eventos
+se han cargado cargado 3445 eventos de 1 juegos y 1 alineaciones
+----
+
+
++*In[496]:*+
+[source, ipython3]
+----
+eventos.shape
+----
+
+
++*Out[496]:*+
+----(3421, 100)----
+
+
++*In[524]:*+
+[source, ipython3]
+----
+pd.set_option('display.max_rows', 10)
+eventos[eventos['shot.technique.id'].notnull()]['shot.technique.id']
+
+----
+
+
++*Out[524]:*+
+----0       0
+1       0
+2       0
+3       0
+4       0
+       ..
+3439    0
+3440    0
+3442    0
+3443    0
+3444    0
+Name: shot.technique.id, Length: 3421, dtype: int32----
+
+
++*In[525]:*+
+[source, ipython3]
+----
+pd.set_option('display.max_rows', 10)
+eventos['pass.type.id']
+----
+
+
++*Out[525]:*+
+----0        0
+1        0
+2       65
+3        0
+4        0
+        ..
+3439     0
+3440     0
+3442     0
+3443     0
+3444     0
+Name: pass.type.id, Length: 3421, dtype: int32----
+
+
++*In[462]:*+
+[source, ipython3]
+----
+eventos.duplicated(subset=['id']).any()
+----
+
+
++*Out[462]:*+
+----False----
+
+
++*In[463]:*+
+[source, ipython3]
+----
+ali.shape
+----
+
+
++*Out[463]:*+
+----(22, 9)----
+
+
++*In[464]:*+
+[source, ipython3]
+----
+sff.shape
+----
+
+
++*Out[464]:*+
+----(259, 11)----
+
+
++*In[406]:*+
+[source, ipython3]
+----
+ali.info()
+----
+
+
++*Out[406]:*+
+----
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 22 entries, 0 to 21
+Data columns (total 9 columns):
+ #   Column             Non-Null Count  Dtype 
+---  ------             --------------  ----- 
+ 0   match_id           22 non-null     int64 
+ 1   team_id            22 non-null     int64 
+ 2   team_name          22 non-null     object
+ 3   tactics_formation  22 non-null     object
+ 4   jersey_number      22 non-null     int64 
+ 5   player_id          22 non-null     int64 
+ 6   player_name        22 non-null     object
+ 7   position_id        22 non-null     int64 
+ 8   position_name      22 non-null     object
+dtypes: int64(5), object(4)
+memory usage: 1.7+ KB
+----
+
+
++*In[407]:*+
+[source, ipython3]
+----
+item_counts = eventos["team_name"].value_counts()
+print(item_counts)
+----
+
+
++*Out[407]:*+
+----
+Birmingham City WFC    1965
+Everton LFC            1456
+Name: team_name, dtype: int64
+----
+
+
++*In[408]:*+
+[source, ipython3]
+----
+item_counts = ali["team_name"].value_counts()
+print(item_counts)
+----
+
+
++*Out[408]:*+
+----
+Everton LFC            11
+Birmingham City WFC    11
+Name: team_name, dtype: int64
+----
+
+
++*In[534]:*+
+[source, ipython3]
+----
+eventos.info()
+----
+
+
++*Out[534]:*+
+----
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 3445 entries, 0 to 3444
+Data columns (total 99 columns):
+ #   Column                          Non-Null Count  Dtype  
+---  ------                          --------------  -----  
+ 0   match_id                        3445 non-null   object 
+ 1   id                              3445 non-null   object 
+ 2   index                           3445 non-null   int64  
+ 3   period                          3445 non-null   int64  
+ 4   timestamp                       3445 non-null   object 
+ 5   minute                          3445 non-null   int64  
+ 6   second                          3445 non-null   int64  
+ 7   possession                      3445 non-null   int64  
+ 8   duration                        2574 non-null   float64
+ 9   type.id                         3445 non-null   int64  
+ 10  type.name                       3445 non-null   object 
+ 11  possession_team.id              3445 non-null   int64  
+ 12  possession_team.name            3445 non-null   object 
+ 13  play_pattern.id                 3445 non-null   int64  
+ 14  play_pattern.name               3445 non-null   object 
+ 15  team.id                         3445 non-null   int64  
+ 16  team.name                       3445 non-null   object 
+ 17  tactics.formation               2 non-null      float64
+ 18  tactics.lineup                  2 non-null      object 
+ 19  related_events                  3281 non-null   object 
+ 20  location                        3425 non-null   object 
+ 21  player.id                       3445 non-null   int32  
+ 22  player.name                     3435 non-null   object 
+ 23  position.id                     3445 non-null   int32  
+ 24  position.name                   3435 non-null   object 
+ 25  pass.recipient.id               3445 non-null   int32  
+ 26  pass.recipient.name             871 non-null    object 
+ 27  pass.length                     968 non-null    float64
+ 28  pass.angle                      968 non-null    float64
+ 29  pass.height.id                  3445 non-null   int32  
+ 30  pass.height.name                968 non-null    object 
+ 31  pass.end_location               968 non-null    object 
+ 32  pass.body_part.id               3445 non-null   int32  
+ 33  pass.body_part.name             895 non-null    object 
+ 34  pass.type.id                    3445 non-null   int32  
+ 35  pass.type.name                  222 non-null    object 
+ 36  carry.end_location              766 non-null    object 
+ 37  under_pressure                  737 non-null    object 
+ 38  dribble.outcome.id              3445 non-null   int32  
+ 39  dribble.outcome.name            39 non-null     object 
+ 40  duel.type.id                    3445 non-null   int32  
+ 41  duel.type.name                  59 non-null     object 
+ 42  duel.outcome.id                 3445 non-null   int32  
+ 43  duel.outcome.name               41 non-null     object 
+ 44  pass.outcome.id                 3445 non-null   int32  
+ 45  pass.outcome.name               229 non-null    object 
+ 46  ball_receipt.outcome.id         3445 non-null   int32  
+ 47  ball_receipt.outcome.name       132 non-null    object 
+ 48  pass.assisted_shot_id           19 non-null     object 
+ 49  pass.goal_assist                1 non-null      object 
+ 50  shot.statsbomb_xg               24 non-null     float64
+ 51  shot.end_location               24 non-null     object 
+ 52  shot.key_pass_id                19 non-null     object 
+ 53  shot.type.id                    3445 non-null   int32  
+ 54  shot.type.name                  24 non-null     object 
+ 55  shot.outcome.id                 3445 non-null   int32  
+ 56  shot.outcome.name               24 non-null     object 
+ 57  shot.technique.id               3445 non-null   int32  
+ 58  shot.technique.name             24 non-null     object 
+ 59  shot.body_part.id               3445 non-null   int32  
+ 60  shot.body_part.name             24 non-null     object 
+ 61  goalkeeper.position.id          3445 non-null   int32  
+ 62  goalkeeper.position.name        24 non-null     object 
+ 63  goalkeeper.outcome.id           3445 non-null   int32  
+ 64  goalkeeper.outcome.name         7 non-null      object 
+ 65  goalkeeper.technique.id         3445 non-null   int32  
+ 66  goalkeeper.technique.name       5 non-null      object 
+ 67  goalkeeper.type.id              3445 non-null   int32  
+ 68  goalkeeper.type.name            26 non-null     object 
+ 69  counterpress                    122 non-null    object 
+ 70  pass.switch                     19 non-null     object 
+ 71  pass.backheel                   4 non-null      object 
+ 72  interception.outcome.id         3445 non-null   int32  
+ 73  interception.outcome.name       16 non-null     object 
+ 74  pass.aerial_won                 14 non-null     object 
+ 75  pass.cross                      17 non-null     object 
+ 76  foul_committed.offensive        1 non-null      object 
+ 77  foul_won.defensive              5 non-null      object 
+ 78  ball_recovery.recovery_failure  6 non-null      object 
+ 79  foul_committed.advantage        1 non-null      object 
+ 80  foul_won.advantage              1 non-null      object 
+ 81  pass.shot_assist                18 non-null     object 
+ 82  goalkeeper.end_location         16 non-null     object 
+ 83  shot.aerial_won                 2 non-null      object 
+ 84  shot.first_time                 2 non-null      object 
+ 85  goalkeeper.body_part.id         3445 non-null   int32  
+ 86  goalkeeper.body_part.name       4 non-null      object 
+ 87  pass.deflected                  2 non-null      object 
+ 88  foul_committed.type.id          3445 non-null   int32  
+ 89  foul_committed.type.name        4 non-null      object 
+ 90  clearance.aerial_won            2 non-null      object 
+ 91  off_camera                      4 non-null      object 
+ 92  foul_committed.card.id          3445 non-null   int32  
+ 93  foul_committed.card.name        1 non-null      object 
+ 94  substitution.outcome.id         3445 non-null   int32  
+ 95  substitution.outcome.name       5 non-null      object 
+ 96  substitution.replacement.id     3445 non-null   int32  
+ 97  substitution.replacement.name   5 non-null      object 
+ 98  dribble.nutmeg                  1 non-null      object 
+dtypes: float64(5), int32(25), int64(9), object(60)
+memory usage: 2.3+ MB
+----
+
+
++*In[455]:*+
+[source, ipython3]
+----
+pd.set_option('display.max_rows', None)
+print(eventos.dtypes)
+pd.set_option('display.max_rows', 10)
+----
+
+
++*Out[455]:*+
+----
+match_id                            int64
+index                               int64
+period                              int64
+timestamp                          object
+minute                              int64
+second                              int64
+possession                          int64
+duration                          float64
+type_id                             int64
+type_name                          object
+possession_team_id                  int64
+possession_team_name               object
+play_pattern_id                     int64
+play_pattern_name                  object
+team_id                             int64
+team_name                          object
+tactics_formation                 float64
+tactics_lineup                     object
+related_events                     object
+location_x                         object
+player_id                           int32
+player_name                        object
+position_id                         int32
+position_name                      object
+pass_recipient_id                   int32
+pass_recipient_name                object
+pass_length                       float64
+pass_angle                        float64
+pass_height_id                      int32
+pass_height_name                   object
+pass_end_location_x                object
+pass_body_part_id                   int32
+pass_body_part_name                object
+pass_type_id                        int32
+pass_type_name                     object
+carry_end_location_x               object
+under_pressure                     object
+dribble_outcome_id                  int32
+dribble_outcome_name               object
+duel_type_id                        int32
+duel_type_name                     object
+duel_outcome_id                     int32
+duel_outcome_name                  object
+pass_outcome_id                     int32
+pass_outcome_name                  object
+ball_receipt_outcome_id             int32
+ball_receipt_outcome_name          object
+pass_assisted_shot_id              object
+pass_goal_assist                   object
+shot_statsbomb_xg                 float64
+shot_end_location_x                object
+shot_key_pass_id                   object
+shot_type_id                        int32
+shot_type_name                     object
+shot_outcome_id                     int32
+shot_outcome_name                  object
+shot_technique_id                   int32
+shot_technique_name                object
+shot_body_part_id                   int32
+shot_body_part_name                object
+shot_freeze_frame                  object
+goalkeeper_position_id              int32
+goalkeeper_position_name           object
+goalkeeper_outcome_id               int32
+goalkeeper_outcome_name            object
+goalkeeper_technique_id             int32
+goalkeeper_technique_name          object
+goalkeeper_type_id                  int32
+goalkeeper_type_name               object
+counterpress                       object
+pass_switch                        object
+pass_backheel                      object
+interception_outcome_id             int32
+interception_outcome_name          object
+pass_aerial_won                    object
+pass_cross                         object
+foul_committed_offensive           object
+foul_won_defensive                 object
+ball_recovery_recovery_failure     object
+foul_committed_advantage           object
+foul_won_advantage                 object
+pass_shot_assist                   object
+goalkeeper_end_location_x          object
+shot_aerial_won                    object
+shot_first_time                    object
+goalkeeper_body_part_id             int32
+goalkeeper_body_part_name          object
+pass_deflected                     object
+foul_committed_type_id              int32
+foul_committed_type_name           object
+clearance_aerial_won               object
+off_camera                         object
+foul_committed_card_id              int32
+foul_committed_card_name           object
+substitution_outcome_id             int32
+substitution_outcome_name          object
+substitution_replacement_id         int32
+substitution_replacement_name      object
+dribble_nutmeg                     object
+location_y                         object
+locationX                         float64
+locationY                         float64
+locationZ                         float64
+pass_end_location_y                object
+pass_end_locationX                float64
+pass_end_locationY                float64
+pass_end_locationZ                float64
+carry_end_location_y               object
+carry_end_locationX                object
+carry_end_locationY                object
+carry_end_locationZ                object
+shot_end_location_y                object
+shot_end_locationX                 object
+shot_end_locationY                 object
+shot_end_locationZ                 object
+id                                 object
+goalkeeper_end_location_y          object
+goalkeeper_end_locationX           object
+goalkeeper_end_locationY           object
+goalkeeper_end_locationZ           object
+dtype: object
+----
+
+
++*In[412]:*+
+[source, ipython3]
+----
+eventos[eventos['goalkeeper_end_location'].notnull()]['goalkeeper_end_location']
+----
+
+
++*Out[412]:*+
+----1751    [78.0, 61.0]
+1785    [75.0, 80.0]
+1905    [19.0, 35.0]
+1989    [16.0, 43.0]
+1993     [3.0, 43.0]
+            ...     
+2751    [16.0, 40.0]
+2907     [2.0, 40.0]
+3204     [7.0, 65.0]
+3438    [14.0, 52.0]
+3442     [1.0, 41.0]
+Name: goalkeeper_end_location, Length: 16, dtype: object----
+
+
++*In[535]:*+
+[source, ipython3]
+----
+for column in eventos:
+    if "location" in column:
+        #fr_frame=df_eventos[df_eventos['shot_freeze_frame'].notnull()][['match_id','team_id','team_name','id','index','shot_freeze_frame']]
+        col_coord=eventos[eventos[column].notnull()][['id',column]].copy()
+        col_coord[column+"X"] = col_coord[column].apply(lambda a: a[0])
+        col_coord[column+"Y"] = col_coord[column].apply(lambda a: a[1])
+        col_coord[column+"Z"] = col_coord[column].apply(lambda a: location_to_Z(a))
+        eventos=pd.merge(eventos,col_coord, how='left', on='id')
+        print(f"se normalizó {column}")
+        
+        #eventos.insert(loc=eventos.columns.get_loc(column)+1,column=column+"_x",value=np.NaN)
+        #eventos.insert(loc=eventos.columns.get_loc(column)+2,column=column+"_y",value=np.NaN)
+        #eventos.insert(loc=eventos.columns.get_loc(column)+3,column=column+"_z",value=np.NaN)
+        #df.columns.get_loc("pear")
+        
+         
+      
+        
+    
+    
+
+----
+
+
++*Out[535]:*+
+----
+se normalizó location
+se normalizó pass.end_location
+se normalizó carry.end_location
+se normalizó shot.end_location
+se normalizó goalkeeper.end_location
+----
+
+
++*In[536]:*+
+[source, ipython3]
+----
+eventos[eventos['shot.end_location_x'].notnull()][['shot.end_location_x','shot.end_locationX','shot.end_locationY','shot.end_locationZ']]
+----
+
+
++*Out[536]:*+
+----
+[cols=",,,,",options="header",]
+|===
+| |shot.end_location_x |shot.end_locationX |shot.end_locationY
+|shot.end_locationZ
+|40 |[120.0, 36.4, 0.3] |120.0 |36.4 |0.3
+
+|1750 |[120.0, 45.6, 3.1] |120.0 |45.6 |3.1
+
+|1784 |[120.0, 45.0, 1.3] |120.0 |45.0 |1.3
+
+|1903 |[102.0, 46.0] |102.0 |46.0 |NaN
+
+|1907 |[119.0, 39.3, 1.8] |119.0 |39.3 |1.8
+
+|... |... |... |... |...
+
+|3255 |[120.0, 46.1, 2.0] |120.0 |46.1 |2.0
+
+|3340 |[120.0, 45.0, 4.1] |120.0 |45.0 |4.1
+
+|3391 |[120.0, 33.1, 2.0] |120.0 |33.1 |2.0
+
+|3437 |[107.0, 29.0] |107.0 |29.0 |NaN
+
+|3441 |[120.0, 34.8, 2.8] |120.0 |34.8 |2.8
+|===
+
+24 rows × 4 columns
+----
+
+
++*In[418]:*+
+[source, ipython3]
+----
+def location_to_Z(coord=[]):
+    if len(coord)==3:
+        return coord[2]
+    else:
+        return np.NaN
+
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+
+----
